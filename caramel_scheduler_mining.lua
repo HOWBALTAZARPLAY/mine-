@@ -136,7 +136,6 @@ local ForageStatus = "Idle"
 local SupplyStatus = "Idle"
 local ChestStatus = "Idle"
 local GiftStatus = "Idle"
-local SellOverride = nil
 local Cycle = {
 	Enabled = false,
 	Generation = 0,
@@ -966,11 +965,11 @@ local function GetFishingSpot()
 	return BestStand, BestCast, BestId
 end
 
-local function DumpTable(Value, Depth, Prefix)
+function Fishing.DumpTable(Value, Depth, Prefix)
 	for Key, Item in Value do
 		if type(Item) == "table" and Depth > 0 then
 			print(`{Prefix}{Key} = table`)
-			DumpTable(Item, Depth - 1, Prefix .. "  ")
+			Fishing.DumpTable(Item, Depth - 1, Prefix .. "  ")
 		else
 			print(`{Prefix}{Key} = {tostring(Item)}`)
 		end
@@ -978,7 +977,7 @@ local function DumpTable(Value, Depth, Prefix)
 end
 
 -- Hinahanap ang minigame config (may barHeightRatio, treasure, progressLossPerSecond, durationSeconds)
-local function FindMinigameConfig(State, Runtime)
+function Fishing.FindMinigameConfig(State, Runtime)
 	for _, Source in {State, Runtime} do
 		if type(Source) == "table" then
 			if type(Source.barHeightRatio) == "number" then
@@ -995,23 +994,23 @@ local function FindMinigameConfig(State, Runtime)
 end
 
 -- Returns: target position (0-1), at kung treasure ang hinahabol
-local function GetMinigameTarget(State, Runtime, Simulation)
+function Fishing.GetMinigameTarget(State, Runtime, Simulation)
 	local FishTarget = Simulation.fish.center + Simulation.fish.velocity * 0.1
 
 	if not Toggles.FishTreasure.Value then
 		return FishTarget, false
 	end
 
-	local Config = FindMinigameConfig(State, Runtime)
+	local Config = Fishing.FindMinigameConfig(State, Runtime)
 
 	if not Config then
 		if not Fishing.ConfigWarned then
 			Fishing.ConfigWarned = true
 			warn("[Caramel] Hindi nahanap ang fishing minigame config. Ipadala ang output sa baba:")
 			print("=== ATOM ===")
-			DumpTable(State, 1, "")
+			Fishing.DumpTable(State, 1, "")
 			print("=== RUNTIME ===")
-			DumpTable(Runtime, 1, "")
+			Fishing.DumpTable(Runtime, 1, "")
 		end
 
 		return FishTarget, false
@@ -1102,7 +1101,7 @@ local function Fish(Active)
 			local Simulation = Runtime.state
 
 			if Simulation then
-				local Target, ChasingTreasure = GetMinigameTarget(State, Runtime, Simulation)
+				local Target, ChasingTreasure = Fishing.GetMinigameTarget(State, Runtime, Simulation)
 				local PredictedBar = Simulation.barCenter + Simulation.barVelocity * 0.12
 
 				Fishing.Runner.setFishingMinigameUseHeld(PredictedBar > Target)
@@ -1542,7 +1541,7 @@ local function GetSellSlots()
 
 		local Category = Data.type == "crop" and "Crops" or Data.type == "fish" and "Fish" or Data.type == "material" and "Materials"
 
-		if not Category or not (SellOverride or Options.SellCategories.Value)[Category] or Totals[Slot.itemId] - Slot.quantity < Options.KeepItems.Value then
+		if not Category or not (Cycle.SellOverride or Options.SellCategories.Value)[Category] or Totals[Slot.itemId] - Slot.quantity < Options.KeepItems.Value then
 			continue
 		end
 
@@ -2282,7 +2281,7 @@ local function AutoCraft(Generation)
 end
 
 -- Scheduler
-local function GetUsedSlots()
+function Cycle.GetUsedSlots()
 	local Account = PlayerSelectors.getLocalAccount()
 	local Count = 0
 
@@ -2297,13 +2296,13 @@ local function GetUsedSlots()
 	return Count
 end
 
-local function FormatTime(Seconds)
+function Cycle.FormatTime(Seconds)
 	Seconds = math.max(0, math.floor(Seconds))
 
 	return `{Seconds // 60}:{string.format("%02d", Seconds % 60)}`
 end
 
-local function RunFarmPhase(Active)
+function Cycle.RunFarmPhase(Active)
 	local Deadline = os.clock() + 180
 
 	while Active() and os.clock() < Deadline do
@@ -2337,7 +2336,7 @@ local function RunFarmPhase(Active)
 	end
 end
 
-local function AutoCycle(Generation)
+function Cycle.AutoCycle(Generation)
 	local function Active()
 		return Cycle.Enabled and Cycle.Generation == Generation and not Library.Unloaded
 	end
@@ -2357,13 +2356,13 @@ local function AutoCycle(Generation)
 				Cycle.Status = "Leave the house to run the scheduler"
 			elseif Now >= Cycle.NextHarvestAt then
 				Cycle.Status = "Priority 1: harvesting"
-				RunFarmPhase(Active)
+				Cycle.RunFarmPhase(Active)
 				Cycle.NextHarvestAt = os.clock() + Options.HarvestInterval.Value * 60
-			elseif Now >= Cycle.NextSellAt or (GetUsedSlots() >= Options.SellSlots.Value and Now >= Cycle.ThresholdRetryAt) then
+			elseif Now >= Cycle.NextSellAt or (Cycle.GetUsedSlots() >= Options.SellSlots.Value and Now >= Cycle.ThresholdRetryAt) then
 				Cycle.Status = "Priority 2: selling"
-				SellOverride = {Crops = true, Fish = true}
+				Cycle.SellOverride = {Crops = true, Fish = true}
 				SellItems(Active)
-				SellOverride = nil
+				Cycle.SellOverride = nil
 				Cycle.NextSellAt = os.clock() + Options.SellInterval.Value * 60
 				Cycle.ThresholdRetryAt = os.clock() + 120
 			else
@@ -2401,79 +2400,80 @@ local Tabs = {
 	Settings = Window:AddTab("Settings", "settings"),
 }
 
-local CropGroup = Tabs.Farm:AddGroupbox({
+local UI = {}
+UI.CropGroup = Tabs.Farm:AddGroupbox({
 	Side = "Left",
 	Name = "Crops",
 	IconName = "sprout",
 })
 
-local SupplyGroup = Tabs.Farm:AddGroupbox({
+UI.SupplyGroup = Tabs.Farm:AddGroupbox({
 	Side = "Right",
 	Name = "Seeds",
 	IconName = "shopping-basket",
 })
 
-local SaleGroup = Tabs.Farm:AddGroupbox({
+UI.SaleGroup = Tabs.Farm:AddGroupbox({
 	Side = "Right",
 	Name = "Selling",
 	IconName = "coins",
 })
 
-local StatsGroup = Tabs.Farm:AddGroupbox({
+UI.StatsGroup = Tabs.Farm:AddGroupbox({
 	Side = "Left",
 	Name = "Session",
 	IconName = "chart-no-axes-combined",
 })
 
-local ForageGroup = Tabs.Gathering:AddGroupbox({
+UI.ForageGroup = Tabs.Gathering:AddGroupbox({
 	Side = "Left",
 	Name = "Foraging",
 	IconName = "leaf",
 })
 
-local RewardGroup = Tabs.Gathering:AddGroupbox({
+UI.RewardGroup = Tabs.Gathering:AddGroupbox({
 	Side = "Right",
 	Name = "Achievements",
 	IconName = "award",
 })
 
-local TravelGroup = Tabs.Travel:AddGroupbox({
+UI.TravelGroup = Tabs.Travel:AddGroupbox({
 	Side = "Left",
 	Name = "Destinations",
 	IconName = "map-pin",
 })
 
-local PlayerGroup = Tabs.Travel:AddGroupbox({
+UI.PlayerGroup = Tabs.Travel:AddGroupbox({
 	Side = "Right",
 	Name = "Player",
 	IconName = "person-standing",
 })
 
-local MenuGroup = Tabs.Settings:AddGroupbox({
+UI.MenuGroup = Tabs.Settings:AddGroupbox({
 	Side = "Left",
 	Name = "Menu",
 	IconName = "settings",
 })
 
-local ChestGroup = Tabs.Gathering:AddGroupbox({
+UI.ChestGroup = Tabs.Gathering:AddGroupbox({
 	Side = "Left",
 	Name = "Treasure",
 	IconName = "gem",
 })
 
-local GiftGroup = Tabs.Gathering:AddGroupbox({
+UI.GiftGroup = Tabs.Gathering:AddGroupbox({
 	Side = "Right",
 	Name = "Daily and Mail",
 	IconName = "gift",
 })
 
-local MarkerGroup = Tabs.Travel:AddGroupbox({
+UI.MarkerGroup = Tabs.Travel:AddGroupbox({
 	Side = "Left",
 	Name = "Resource Markers",
 	IconName = "scan-eye",
 })
 
-local DiscordGroup = Tabs.Settings:AddGroupbox({
+UI.DiscordGroup = Tabs.Settings:AddGroupbox({
 	Side = "Left",
 	Name = "Discord",
 	IconName = "message-circle",
@@ -2683,18 +2683,19 @@ do
 	Updates.TimeLabel = ForecastGroup:AddLabel("Waiting for forecast")
 end
 
-local CycleGroup = Tabs.Farm:AddGroupbox({
+do
+UI.CycleGroup = Tabs.Farm:AddGroupbox({
 	Side = "Right",
 	Name = "Scheduler",
 	IconName = "clock",
 })
 
-CycleGroup:AddToggle("AutoCycle", {
+UI.CycleGroup:AddToggle("AutoCycle", {
 	Text = "Auto scheduler",
 	Default = false,
 })
 
-CycleGroup:AddSlider("HarvestInterval", {
+UI.CycleGroup:AddSlider("HarvestInterval", {
 	Text = "Harvest every (min)",
 	Default = 10,
 	Min = 1,
@@ -2702,7 +2703,7 @@ CycleGroup:AddSlider("HarvestInterval", {
 	Rounding = 0,
 })
 
-CycleGroup:AddSlider("SellInterval", {
+UI.CycleGroup:AddSlider("SellInterval", {
 	Text = "Sell every (min)",
 	Default = 11,
 	Min = 1,
@@ -2710,7 +2711,7 @@ CycleGroup:AddSlider("SellInterval", {
 	Rounding = 0,
 })
 
-CycleGroup:AddSlider("SellSlots", {
+UI.CycleGroup:AddSlider("SellSlots", {
 	Text = "Also sell at used slots",
 	Default = 35,
 	Min = 1,
@@ -2718,41 +2719,42 @@ CycleGroup:AddSlider("SellSlots", {
 	Rounding = 0,
 })
 
-Cycle.Label = CycleGroup:AddLabel("Idle")
-Cycle.TimerLabel = CycleGroup:AddLabel("Scheduler off")
+Cycle.Label = UI.CycleGroup:AddLabel("Idle")
+Cycle.TimerLabel = UI.CycleGroup:AddLabel("Scheduler off")
+end
 
-CropGroup:AddToggle("AutoFarm", {
+UI.CropGroup:AddToggle("AutoFarm", {
 	Text = "Auto farm",
 	Default = false,
 })
 
-CropGroup:AddToggle("HarvestCrops", {
+UI.CropGroup:AddToggle("HarvestCrops", {
 	Text = "Harvest ripe crops",
 	Default = true,
 })
 
-CropGroup:AddToggle("UseSickle", {
+UI.CropGroup:AddToggle("UseSickle", {
 	Text = "Use best owned sickle",
 	Default = true,
 })
 
-CropGroup:AddToggle("WaterCrops", {
+UI.CropGroup:AddToggle("WaterCrops", {
 	Text = "Water growing crops",
 	Default = true,
 })
 
-CropGroup:AddToggle("PlantCrops", {
+UI.CropGroup:AddToggle("PlantCrops", {
 	Text = "Plant empty tiles",
 	Default = true,
 })
 
-CropGroup:AddDropdown("Seed", {
+UI.CropGroup:AddDropdown("Seed", {
 	Values = SeedNames,
 	Default = table.find(SeedNames, "carrot") or 1,
 	Text = "Crop to plant",
 })
 
-CropGroup:AddSlider("CropLimit", {
+UI.CropGroup:AddSlider("CropLimit", {
 	Text = "Crop limit",
 	Default = 15,
 	Min = 1,
@@ -2760,15 +2762,15 @@ CropGroup:AddSlider("CropLimit", {
 	Rounding = 0,
 })
 
-local FarmLabel = CropGroup:AddLabel("Idle")
-Garden.Label = CropGroup:AddLabel("Crop target: 0")
+local FarmLabel = UI.CropGroup:AddLabel("Idle")
+Garden.Label = UI.CropGroup:AddLabel("Crop target: 0")
 
-SupplyGroup:AddToggle("AutoBuy", {
+UI.SupplyGroup:AddToggle("AutoBuy", {
 	Text = "Restock selected seeds",
 	Default = false,
 })
 
-SupplyGroup:AddSlider("SeedReserve", {
+UI.SupplyGroup:AddSlider("SeedReserve", {
 	Text = "Seeds to keep",
 	Default = 5,
 	Min = 1,
@@ -2776,7 +2778,7 @@ SupplyGroup:AddSlider("SeedReserve", {
 	Rounding = 0,
 })
 
-SupplyGroup:AddSlider("GoldReserve", {
+UI.SupplyGroup:AddSlider("GoldReserve", {
 	Text = "Gold to keep",
 	Default = 50,
 	Min = 0,
@@ -2784,26 +2786,26 @@ SupplyGroup:AddSlider("GoldReserve", {
 	Rounding = 0,
 })
 
-local SupplyLabel = SupplyGroup:AddLabel("Idle")
+local SupplyLabel = UI.SupplyGroup:AddLabel("Idle")
 
-SaleGroup:AddToggle("AutoSell", {
+UI.SaleGroup:AddToggle("AutoSell", {
 	Text = "Auto sell inventory",
 	Default = false,
 })
 
-SaleGroup:AddDropdown("SellCategories", {
+UI.SaleGroup:AddDropdown("SellCategories", {
 	Values = {"Crops", "Fish", "Materials"},
 	Default = {"Crops"},
 	Multi = true,
 	Text = "Sell categories",
 })
 
-SaleGroup:AddToggle("KeepRare", {
+UI.SaleGroup:AddToggle("KeepRare", {
 	Text = "Keep rare items",
 	Default = true,
 })
 
-SaleGroup:AddSlider("KeepItems", {
+UI.SaleGroup:AddSlider("KeepItems", {
 	Text = "Keep per item",
 	Default = 0,
 	Min = 0,
@@ -2811,7 +2813,7 @@ SaleGroup:AddSlider("KeepItems", {
 	Rounding = 0,
 })
 
-SaleGroup:AddDropdown("ProtectedItems", {
+UI.SaleGroup:AddDropdown("ProtectedItems", {
 	Values = ProtectedItemNames,
 	Default = {},
 	Multi = true,
@@ -2819,37 +2821,37 @@ SaleGroup:AddDropdown("ProtectedItems", {
 	Searchable = true,
 })
 
-Trading.Label = SaleGroup:AddLabel("Idle")
+Trading.Label = UI.SaleGroup:AddLabel("Idle")
 
-local TimeLabel = StatsGroup:AddLabel("Time: 0m")
-local GoldLabel = StatsGroup:AddLabel("Gold change: 0")
-local CropLabel = StatsGroup:AddLabel("Planted: 0 | Watered: 0")
-local HarvestLabel = StatsGroup:AddLabel("Harvests: 0 | Forage: 0")
-local SaleLabel = StatsGroup:AddLabel("Sales: 0 | Seeds bought: 0")
+local TimeLabel = UI.StatsGroup:AddLabel("Time: 0m")
+local GoldLabel = UI.StatsGroup:AddLabel("Gold change: 0")
+local CropLabel = UI.StatsGroup:AddLabel("Planted: 0 | Watered: 0")
+local HarvestLabel = UI.StatsGroup:AddLabel("Harvests: 0 | Forage: 0")
+local SaleLabel = UI.StatsGroup:AddLabel("Sales: 0 | Seeds bought: 0")
 
-ForageGroup:AddToggle("AutoForage", {
+UI.ForageGroup:AddToggle("AutoForage", {
 	Text = "Auto forage",
 	Default = false,
 })
 
-ForageGroup:AddToggle("ForageRainOnly", {
+UI.ForageGroup:AddToggle("ForageRainOnly", {
 	Text = "Only forage during rain",
 	Default = false,
 })
 
-ForageGroup:AddToggle("ForageNightOnly", {
+UI.ForageGroup:AddToggle("ForageNightOnly", {
 	Text = "Only forage at night",
 	Default = false,
 })
 
-ForageGroup:AddDropdown("ForageTypes", {
+UI.ForageGroup:AddDropdown("ForageTypes", {
 	Values = {"Dewcap", "Gleaming Stone", "Loose Rock", "Moonthistle", "Mushroom", "Pebbles", "Rainblossom", "Seashell", "Starfall Petal", "Zephyr Bloom"},
 	Default = {"Dewcap", "Gleaming Stone", "Loose Rock", "Moonthistle", "Mushroom", "Pebbles", "Rainblossom", "Seashell", "Starfall Petal", "Zephyr Bloom"},
 	Multi = true,
 	Text = "Collect",
 })
 
-ForageGroup:AddSlider("ForageRadius", {
+UI.ForageGroup:AddSlider("ForageRadius", {
 	Text = "Search radius",
 	Default = 2500,
 	Min = 100,
@@ -2857,40 +2859,40 @@ ForageGroup:AddSlider("ForageRadius", {
 	Rounding = 0,
 })
 
-local ForageLabel = ForageGroup:AddLabel("Idle")
+local ForageLabel = UI.ForageGroup:AddLabel("Idle")
 
-RewardGroup:AddToggle("AutoRewards", {
+UI.RewardGroup:AddToggle("AutoRewards", {
 	Text = "Claim achievements",
 	Default = false,
 })
 
-local RewardLabel = RewardGroup:AddLabel("Rewards claimed: 0")
+local RewardLabel = UI.RewardGroup:AddLabel("Rewards claimed: 0")
 
-ChestGroup:AddToggle("AutoChests", {
+UI.ChestGroup:AddToggle("AutoChests", {
 	Text = "Auto collect treasure chests",
 	Default = false,
 })
 
-local ChestLabel = ChestGroup:AddLabel("Idle")
-local ChestCountLabel = ChestGroup:AddLabel("Chests collected: 0")
+local ChestLabel = UI.ChestGroup:AddLabel("Idle")
+local ChestCountLabel = UI.ChestGroup:AddLabel("Chests collected: 0")
 
-GiftGroup:AddToggle("AutoGifts", {
+UI.GiftGroup:AddToggle("AutoGifts", {
 	Text = "Auto claim gifts",
 	Default = false,
 })
 
-GiftGroup:AddToggle("ClaimDaily", {
+UI.GiftGroup:AddToggle("ClaimDaily", {
 	Text = "Claim daily reward",
 	Default = true,
 })
 
-GiftGroup:AddToggle("ClaimMail", {
+UI.GiftGroup:AddToggle("ClaimMail", {
 	Text = "Claim mail attachments",
 	Default = true,
 })
 
 if Updates.Code then
-	GiftGroup:AddButton({
+	UI.GiftGroup:AddButton({
 		Text = `Redeem {Updates.Code}`,
 		Func = function()
 			local State = Updates.CodeAtom()
@@ -2902,22 +2904,22 @@ if Updates.Code then
 	})
 end
 
-local GiftLabel = GiftGroup:AddLabel("Idle")
-local GiftCountLabel = GiftGroup:AddLabel("Gifts claimed: 0")
+local GiftLabel = UI.GiftGroup:AddLabel("Idle")
+local GiftCountLabel = UI.GiftGroup:AddLabel("Gifts claimed: 0")
 
-MarkerGroup:AddToggle("ResourceMarkers", {
+UI.MarkerGroup:AddToggle("ResourceMarkers", {
 	Text = "Show resource markers",
 	Default = false,
 })
 
-MarkerGroup:AddDropdown("MarkerTypes", {
+UI.MarkerGroup:AddDropdown("MarkerTypes", {
 	Values = {"Rare forage", "Ripe crops", "Treasure chests", "Mine nodes"},
 	Default = {"Rare forage", "Ripe crops", "Treasure chests", "Mine nodes"},
 	Multi = true,
 	Text = "Show",
 })
 
-MarkerGroup:AddSlider("MarkerLimit", {
+UI.MarkerGroup:AddSlider("MarkerLimit", {
 	Text = "Marker limit",
 	Default = 12,
 	Min = 1,
@@ -2925,7 +2927,7 @@ MarkerGroup:AddSlider("MarkerLimit", {
 	Rounding = 0,
 })
 
-MarkerGroup:AddSlider("MarkerRadius", {
+UI.MarkerGroup:AddSlider("MarkerRadius", {
 	Text = "Marker radius",
 	Default = 2500,
 	Min = 100,
@@ -2935,23 +2937,23 @@ MarkerGroup:AddSlider("MarkerRadius", {
 
 RefreshLandmarks()
 
-TravelGroup:AddDropdown("Landmark", {
+UI.TravelGroup:AddDropdown("Landmark", {
 	Values = LandmarkNames,
 	Default = table.find(LandmarkNames, "My Plot") or 1,
 	Text = "Destination",
 })
 
-TravelGroup:AddButton({
+UI.TravelGroup:AddButton({
 	Text = "Travel",
 	Func = TravelToLandmark,
 })
 
-TravelGroup:AddButton({
+UI.TravelGroup:AddButton({
 	Text = "Refresh destinations",
 	Func = RefreshLandmarks,
 })
 
-TravelGroup:AddButton({
+UI.TravelGroup:AddButton({
 	Text = "Save current position",
 	Func = function()
 		if not IsReady() or MovementBusy then
@@ -2967,7 +2969,7 @@ TravelGroup:AddButton({
 	end,
 })
 
-TravelGroup:AddButton({
+UI.TravelGroup:AddButton({
 	Text = "Return to saved position",
 	Func = function()
 		local Scene = ActiveScene.activeSceneStateAtom()
@@ -2981,12 +2983,12 @@ TravelGroup:AddButton({
 	end,
 })
 
-PlayerGroup:AddToggle("WalkSpeedEnabled", {
+UI.PlayerGroup:AddToggle("WalkSpeedEnabled", {
 	Text = "Custom walk speed",
 	Default = false,
 })
 
-PlayerGroup:AddSlider("WalkSpeed", {
+UI.PlayerGroup:AddSlider("WalkSpeed", {
 	Text = "Walk speed",
 	Default = 24,
 	Min = 8,
@@ -2994,17 +2996,17 @@ PlayerGroup:AddSlider("WalkSpeed", {
 	Rounding = 0,
 })
 
-PlayerGroup:AddToggle("AntiIdle", {
+UI.PlayerGroup:AddToggle("AntiIdle", {
 	Text = "Anti idle",
 	Default = false,
 })
 
-PlayerGroup:AddToggle("ReturnAfterAction", {
+UI.PlayerGroup:AddToggle("ReturnAfterAction", {
 	Text = "Return after farming",
 	Default = true,
 })
 
-PlayerGroup:AddSlider("ActionDelay", {
+UI.PlayerGroup:AddSlider("ActionDelay", {
 	Text = "Movement settle time",
 	Default = 0.35,
 	Min = 0.2,
@@ -3012,32 +3014,32 @@ PlayerGroup:AddSlider("ActionDelay", {
 	Rounding = 2,
 })
 
-MenuGroup:AddLabel("Menu key"):AddKeyPicker("MenuKeybind", {
+UI.MenuGroup:AddLabel("Menu key"):AddKeyPicker("MenuKeybind", {
 	Default = "RightControl",
 	NoUI = true,
 	Text = "Menu key",
 })
 
-MenuGroup:AddButton({
+UI.MenuGroup:AddButton({
 	Text = "Stop automation",
 	Func = StopAutomation,
 })
 
-MenuGroup:AddButton({
+UI.MenuGroup:AddButton({
 	Text = "Unload",
 	Func = function()
 		Library:Unload()
 	end,
 })
 
-DiscordGroup:AddLabel("discord.gg/cyjC3QejpG")
+UI.DiscordGroup:AddLabel("discord.gg/cyjC3QejpG")
 
-DiscordGroup:AddButton({
+UI.DiscordGroup:AddButton({
 	Text = "Copy Discord invite",
 	Func = CopyDiscord,
 })
 
-DiscordGroup:AddButton({
+UI.DiscordGroup:AddButton({
 	Text = "Open Discord invite",
 	Func = function()
 		task.spawn(OpenDiscord)
@@ -3070,7 +3072,7 @@ Toggles.AutoCycle:OnChanged(function()
 			Toggles[Name]:SetValue(false)
 		end
 
-		task.spawn(AutoCycle, Cycle.Generation)
+		task.spawn(Cycle.AutoCycle, Cycle.Generation)
 	else
 		Cycle.Status = "Idle"
 	end
@@ -3361,9 +3363,9 @@ task.spawn(function()
 		if Cycle.Enabled then
 			local Now = os.clock()
 
-			Cycle.TimerLabel:SetText(`Harvest in {FormatTime(Cycle.NextHarvestAt - Now)} | Sell in {FormatTime(Cycle.NextSellAt - Now)} | Slots: {GetUsedSlots()}`)
+			Cycle.TimerLabel:SetText(`Harvest in {Cycle.FormatTime(Cycle.NextHarvestAt - Now)} | Sell in {Cycle.FormatTime(Cycle.NextSellAt - Now)} | Slots: {Cycle.GetUsedSlots()}`)
 		else
-			Cycle.TimerLabel:SetText(`Scheduler off | Slots: {GetUsedSlots()}`)
+			Cycle.TimerLabel:SetText(`Scheduler off | Slots: {Cycle.GetUsedSlots()}`)
 		end
 
 		local CropText = `Crops: {#PlayerSelectors.getLocalCrops()} / {GetCropLimit()}`
